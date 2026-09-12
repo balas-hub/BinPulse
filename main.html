@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BinPulse Live Dashboard</title>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <!-- Chart.js for graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f4f7fc;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            color: #2c3e50;
+            font-weight: 300;
+        }
+        .header h1 span {
+            font-weight: 600;
+            color: #27ae60;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+            gap: 20px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        .bin-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 20px;
+            transition: transform 0.2s;
+            border-top: 5px solid #3498db;
+        }
+        .bin-card.emergency {
+            border-top-color: #e74c3c;
+            background: #fff5f5;
+        }
+        .bin-card.full {
+            border-top-color: #f39c12;
+        }
+        .bin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .bin-id {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        .bin-status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            background: #ecf0f1;
+            color: #7f8c8d;
+        }
+        .status-NORMAL { background: #27ae60; color: white; }
+        .status-NEARLY_FULL { background: #f39c12; color: white; }
+        .status-FULL { background: #e74c3c; color: white; }
+        .status-EMERGENCY { background: #c0392b; color: white; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } }
+        
+        .activity-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.8rem;
+            margin-left: 10px;
+            padding: 4px 10px;
+            border-radius: 15px;
+            background: #d4edda;
+            color: #155724;
+        }
+        .dot {
+            height: 10px;
+            width: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .dot.active {
+            background: #27ae60;
+            box-shadow: 0 0 5px #27ae60;
+            animation: blink 2s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .bin-location {
+            font-size: 0.9rem;
+            color: #7f8c8d;
+            margin-bottom: 10px;
+        }
+        
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .sensor-item {
+            background: #f8fafd;
+            padding: 12px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .sensor-label {
+            font-size: 0.8rem;
+            color: #7f8c8d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .sensor-value {
+            font-size: 1.8rem;
+            font-weight: 600;
+            color: #2c3e50;
+            line-height: 1.2;
+        }
+        .sensor-unit {
+            font-size: 0.8rem;
+            color: #95a5a6;
+            margin-left: 2px;
+        }
+        .progress-bar {
+            background: #ecf0f1;
+            height: 20px;
+            border-radius: 10px;
+            margin: 15px 0 5px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            transition: width 0.3s;
+        }
+        .alert-badge {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .alert-gas { background: #e74c3c; color: white; }
+        .alert-temp { background: #e67e22; color: white; }
+        .alert-humidity { background: #f1c40f; color: #2c3e50; }
+        .last-update {
+            text-align: right;
+            font-size: 0.7rem;
+            color: #bdc3c7;
+            margin-top: 15px;
+        }
+        .history-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            transition: background 0.2s;
+            width: 100%;
+        }
+        .history-btn:hover {
+            background: #2980b9;
+        }
+        .history-section {
+            margin-top: 20px;
+            border-top: 1px solid #ecf0f1;
+            padding-top: 20px;
+            display: none;
+        }
+        .chart-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .chart-box {
+            background: #f8fafd;
+            border-radius: 12px;
+            padding: 10px;
+            position: relative;
+            height: 180px;
+        }
+        .chart-box canvas {
+            width: 100% !important;
+            height: 160px !important;
+        }
+        .loading {
+            text-align: center;
+            color: #7f8c8d;
+            padding: 50px;
+            font-size: 1.2rem;
+        }
+        .chart-loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>♻️ <span>BinPulse</span> – Live Monitoring Dashboard</h1>
+        <p id="connection-status" style="color: #7f8c8d;">Connecting to Firebase...</p>
+    </div>
+    <div id="dashboard-container" class="dashboard">
+        <div class="loading">⏳ Loading bins...</div>
+    </div>
+
+    <script>
+        // Firebase config
+        const firebaseConfig = {
+            apiKey: "AIzaSyAPtgyiooe7ZAiTRs2iZZUKufdRJL2LbkM",
+            authDomain: "pinplu.firebaseapp.com",
+            databaseURL: "https://pinplu-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "pinplu",
+            storageBucket: "pinplu.firebasestorage.app",
+            messagingSenderId: "180595331278",
+            appId: "1:180595331278:web:2371bffef4cfa33b49809f",
+            measurementId: "G-7P4XNRP1W2"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        const binsRef = database.ref('bins');
+        const connectionStatus = document.getElementById('connection-status');
+
+        // Chart instances - now storing actual chart instances
+        const chartInstances = {};
+
+        database.ref('.info/connected').on('value', (snap) => {
+            if (snap.val() === true) {
+                connectionStatus.innerHTML = '✅ Connected to Firebase';
+                connectionStatus.style.color = '#27ae60';
+            } else {
+                connectionStatus.innerHTML = '❌ Disconnected – check your config and network';
+                connectionStatus.style.color = '#e74c3c';
+            }
+        });
+
+        binsRef.on('value', (snapshot) => {
+            const binsData = snapshot.val();
+            renderDashboard(binsData);
+        }, (error) => {
+            console.error('Firebase read failed:', error);
+            document.getElementById('dashboard-container').innerHTML = `
+                <div style="grid-column: 1/-1; text-align: center; color: #e74c3c;">
+                    ❌ Error reading database: ${error.message}<br>
+                    Please check your Firebase rules and configuration.
+                </div>
+            `;
+        });
+
+        function renderDashboard(bins) {
+            const container = document.getElementById('dashboard-container');
+            if (!bins) {
+                container.innerHTML = '<div class="loading">📭 No bins found in database</div>';
+                return;
+            }
+
+            let html = '';
+            for (const [binId, binData] of Object.entries(bins)) {
+                const info = binData.info || {};
+                const current = binData.readings?.current || {};
+                
+                // Always show as active
+                const isActive = true;
+                
+                // Determine status
+                const status = current.status || 'UNKNOWN';
+                let cardClass = 'bin-card';
+                if (status === 'EMERGENCY') cardClass += ' emergency';
+                else if (status === 'FULL') cardClass += ' full';
+
+                // Activity text - always "Active"
+                const activityText = 'Active';
+                const activityClass = 'active';
+
+                // Alert badges
+                let alertBadges = '';
+                if (current.gasAlert) alertBadges += '<span class="alert-badge alert-gas">💨 GAS LEAK</span> ';
+                if (current.tempAlert) alertBadges += '<span class="alert-badge alert-temp">🌡️ HIGH TEMP</span> ';
+                if (current.humidityAlert) alertBadges += '<span class="alert-badge alert-humidity">💧 HIGH HUMIDITY</span> ';
+
+                const fill = current.fillLevel || 0;
+
+                let lastUpdate = 'Never';
+                if (current.timestamp) {
+                    const date = new Date(current.timestamp * 1000);
+                    lastUpdate = date.toLocaleString();
+                }
+
+                const historyId = `history-${binId.replace(/[^a-zA-Z0-9]/g, '')}`;
+
+                html += `
+                <div class="${cardClass}" data-bin-id="${binId}">
+                    <div class="bin-header">
+                        <span class="bin-id">🗑️ ${binId}</span>
+                        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 5px;">
+                            <span class="bin-status-badge status-${status}">${status}</span>
+                            <span class="activity-indicator">
+                                <span class="dot ${activityClass}"></span>
+                                ${activityText}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="bin-location">${info.location || 'Location unknown'}</div>
+                    
+                    <div class="sensor-grid">
+                        <div class="sensor-item">
+                            <div class="sensor-label">FILL</div>
+                            <div class="sensor-value">${fill.toFixed(1)}<span class="sensor-unit">%</span></div>
+                        </div>
+                        <div class="sensor-item">
+                            <div class="sensor-label">TEMP</div>
+                            <div class="sensor-value">${(current.temperature || 0).toFixed(1)}<span class="sensor-unit">°C</span></div>
+                        </div>
+                        <div class="sensor-item">
+                            <div class="sensor-label">HUMIDITY</div>
+                            <div class="sensor-value">${(current.humidity || 0).toFixed(0)}<span class="sensor-unit">%</span></div>
+                        </div>
+                        <div class="sensor-item">
+                            <div class="sensor-label">GAS</div>
+                            <div class="sensor-value">${current.gasReading || 0}<span class="sensor-unit"></span></div>
+                        </div>
+                    </div>
+
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${fill}%;"></div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>Priority: <strong>${current.priority || 0}</strong></div>
+                        <div class="last-update">🕒 ${lastUpdate}</div>
+                    </div>
+                    
+                    ${alertBadges ? `<div style="margin-top: 10px;">${alertBadges}</div>` : ''}
+
+                    <button class="history-btn" onclick="toggleHistory('${binId}', '${historyId}')">📈 View Historical Trends</button>
+                    <div id="${historyId}" class="history-section">
+                        <div class="chart-container">
+                            <div class="chart-box">
+                                <div class="chart-loading" id="loading-fill-${binId}">Loading...</div>
+                                <canvas id="chart-fill-${binId}"></canvas>
+                            </div>
+                            <div class="chart-box">
+                                <div class="chart-loading" id="loading-temp-${binId}">Loading...</div>
+                                <canvas id="chart-temp-${binId}"></canvas>
+                            </div>
+                            <div class="chart-box">
+                                <div class="chart-loading" id="loading-hum-${binId}">Loading...</div>
+                                <canvas id="chart-hum-${binId}"></canvas>
+                            </div>
+                            <div class="chart-box">
+                                <div class="chart-loading" id="loading-gas-${binId}">Loading...</div>
+                                <canvas id="chart-gas-${binId}"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+
+        window.toggleHistory = function(binId, historyId) {
+            const section = document.getElementById(historyId);
+            if (!section) return;
+            
+            if (section.style.display === 'none' || section.style.display === '') {
+                section.style.display = 'block';
+                loadHistory(binId);
+            } else {
+                section.style.display = 'none';
+                // Clean up chart instances when hiding
+                if (chartInstances[binId]) {
+                    Object.values(chartInstances[binId]).forEach(chart => {
+                        if (chart) chart.destroy();
+                    });
+                    delete chartInstances[binId];
+                }
+            }
+        };
+
+        function loadHistory(binId) {
+            // Check if charts already exist for this bin
+            if (chartInstances[binId]) {
+                return;
+            }
+
+            // Initialize chart instances object for this bin
+            chartInstances[binId] = {};
+
+            const historyRef = database.ref(`bins/${binId}/history`).limitToLast(30);
+            historyRef.once('value', (snapshot) => {
+                const historyData = snapshot.val();
+                
+                // Hide loading indicators
+                ['fill', 'temp', 'hum', 'gas'].forEach(type => {
+                    const loadingEl = document.getElementById(`loading-${type}-${binId}`);
+                    if (loadingEl) loadingEl.style.display = 'none';
+                });
+
+                if (!historyData) {
+                    displayNoData(binId);
+                    return;
+                }
+
+                const entries = Object.entries(historyData)
+                    .map(([key, value]) => ({
+                        timestamp: value.timestamp || parseInt(key),
+                        fillLevel: value.fillLevel,
+                        temperature: value.temperature,
+                        humidity: value.humidity,
+                        gasReading: value.gasReading
+                    }))
+                    .sort((a, b) => a.timestamp - b.timestamp);
+
+                const labels = entries.map(e => {
+                    const d = new Date(e.timestamp * 1000);
+                    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                });
+
+                // Create charts and store instances
+                chartInstances[binId].fill = createChart(`chart-fill-${binId}`, 'Fill Level (%)', labels, entries.map(e => e.fillLevel), '#3498db');
+                chartInstances[binId].temp = createChart(`chart-temp-${binId}`, 'Temperature (°C)', labels, entries.map(e => e.temperature), '#e67e22');
+                chartInstances[binId].hum = createChart(`chart-hum-${binId}`, 'Humidity (%)', labels, entries.map(e => e.humidity), '#2ecc71');
+                chartInstances[binId].gas = createChart(`chart-gas-${binId}`, 'Gas Reading', labels, entries.map(e => e.gasReading), '#e74c3c');
+            }).catch(error => {
+                console.error('Error loading history:', error);
+                ['fill', 'temp', 'hum', 'gas'].forEach(type => {
+                    const loadingEl = document.getElementById(`loading-${type}-${binId}`);
+                    if (loadingEl) loadingEl.textContent = 'Error loading data';
+                });
+            });
+        }
+
+        function createChart(canvasId, label, labels, data, borderColor) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) {
+                console.error(`Canvas element with id ${canvasId} not found`);
+                return null;
+            }
+            
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                console.error(`Could not get context for canvas with id ${canvasId}`);
+                return null;
+            }
+            
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: label,
+                        data: data,
+                        borderColor: borderColor,
+                        backgroundColor: borderColor + '20',
+                        tension: 0.2,
+                        fill: true,
+                        pointRadius: 2,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { 
+                            display: false 
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { 
+                                maxRotation: 45, 
+                                minRotation: 45,
+                                font: {
+                                    size: 10
+                                }
+                            },
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                font: {
+                                    size: 10
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+        }
+
+        function displayNoData(binId) {
+            const ids = [`chart-fill-${binId}`, `chart-temp-${binId}`, `chart-hum-${binId}`, `chart-gas-${binId}`];
+            ids.forEach(id => {
+                const canvas = document.getElementById(id);
+                if (canvas) {
+                    const ctx = canvas.getContext('2d');
+                    ctx.font = '12px Arial';
+                    ctx.fillStyle = '#95a5a6';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('No history data', canvas.width/2, canvas.height/2);
+                }
+            });
+        }
+    </script>
+</body>
+</html>

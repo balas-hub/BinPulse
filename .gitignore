@@ -1,0 +1,10 @@
+# Arduino IDE installation directory
+Arduino IDE/
+
+# Executables and libraries
+*.exe
+*.dll
+
+# OS files
+.DS_Store
+Thumbs.db
